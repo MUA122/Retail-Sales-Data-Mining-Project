@@ -1,3 +1,4 @@
+<<<<<<< HEAD
 # Retail Sales Data Mining Project
 
 ## Overview
@@ -100,3 +101,7 @@ project-folder/
 
 - Mahmoud Usama (230103270)
 - Youssef Elshazly (230104603)
+=======
+# Retail-Sales-Data-Mining-Project
+This project is a domain-specific data mining and dashboard development project based on a retail sales dataset.   It follows the CRISP-DM methodology and aims to analyze customer behavior, product performance, and sales trends through data exploration, visualization, and dashboarding.
+>>>>>>> 3b1e11c7015e8a36c856d4202640492ecb619772
