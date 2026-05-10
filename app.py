@@ -190,6 +190,62 @@ def dominant_share(series):
     return float(counts.iloc[0] * 100) if not counts.empty else 0.0
 
 
+def money(value):
+    return f"${float(value):,.0f}"
+
+
+def percent(value):
+    return f"{float(value):.1f}%"
+
+
+def build_owner_text_insights(dataframe):
+    total_revenue = dataframe["Total Amount"].sum()
+    total_transactions = dataframe["Transaction ID"].nunique()
+    total_customers = dataframe["Customer ID"].nunique()
+    avg_order_value = dataframe["Total Amount"].mean()
+
+    category_revenue = dataframe.groupby("Product Category")["Total Amount"].sum().sort_values(ascending=False)
+    category_transactions = dataframe.groupby("Product Category")["Transaction ID"].nunique().sort_values(ascending=False)
+    gender_revenue = dataframe.groupby("Gender")["Total Amount"].sum().sort_values(ascending=False)
+    gender_avg = dataframe.groupby("Gender")["Total Amount"].mean().sort_values(ascending=False)
+    customer_revenue = dataframe.groupby("Customer ID")["Total Amount"].sum().sort_values(ascending=False)
+    customer_transactions = dataframe.groupby("Customer ID")["Transaction ID"].nunique().sort_values(ascending=False)
+
+    top_category = category_revenue.index[0]
+    top_category_share = category_revenue.iloc[0] / total_revenue * 100 if total_revenue else 0
+    top_transaction_category = category_transactions.index[0]
+    top_gender_revenue = gender_revenue.index[0]
+    top_gender_avg = gender_avg.index[0]
+    top_customer = customer_revenue.index[0]
+    top_customer_value = customer_revenue.iloc[0]
+    top_customer_orders = customer_transactions.loc[top_customer]
+
+    if "Month" in dataframe.columns and "Month Number" in dataframe.columns:
+        monthly_revenue = dataframe.groupby(["Month Number", "Month"])["Total Amount"].sum().sort_values(ascending=False)
+        strongest_month = monthly_revenue.index[0][1]
+        strongest_month_value = monthly_revenue.iloc[0]
+    else:
+        strongest_month = "N/A"
+        strongest_month_value = 0
+
+    return {
+        "total_revenue": total_revenue,
+        "total_transactions": total_transactions,
+        "total_customers": total_customers,
+        "avg_order_value": avg_order_value,
+        "top_category": top_category,
+        "top_category_share": top_category_share,
+        "top_transaction_category": top_transaction_category,
+        "top_gender_revenue": top_gender_revenue,
+        "top_gender_avg": top_gender_avg,
+        "top_customer": top_customer,
+        "top_customer_value": top_customer_value,
+        "top_customer_orders": top_customer_orders,
+        "strongest_month": strongest_month,
+        "strongest_month_value": strongest_month_value,
+    }
+
+
 @st.cache_data
 def prepare_customer_level_data(dataframe):
     # In this dataset each customer has one transaction, but this aggregation also works
@@ -433,9 +489,10 @@ if filtered.empty:
     st.error("No data available for the selected filters. Please change the sidebar filters.")
     st.stop()
 
-overview_tab, kmeans_tab, rf_tab, lr_tab, crisp_tab = st.tabs(
+overview_tab, owner_tab, kmeans_tab, rf_tab, lr_tab, crisp_tab = st.tabs(
     [
         "Overview & EDA",
+        "Owner Dashboard",
         "K-Means Clustering",
         "Random Forest Prediction",
         "Linear Regression",
@@ -533,6 +590,183 @@ with overview_tab:
         }
     )
     st.dataframe(quality_df, use_container_width=True, hide_index=True)
+
+
+# =============================
+# Owner Dashboard Tab
+# =============================
+with owner_tab:
+    st.subheader("Owner Dashboard")
+    st.write(
+        "This tab summarizes the most important business information an owner needs: total sales, best categories, gender behavior, top customers, quantities, and direct text insights."
+    )
+
+    owner = build_owner_text_insights(filtered)
+
+    metric_cards(
+        [
+            ("Total Sales", money(owner["total_revenue"])),
+            ("Transactions", f"{owner['total_transactions']:,}"),
+            ("Customers", f"{owner['total_customers']:,}"),
+            ("Avg Order Value", f"${owner['avg_order_value']:,.2f}"),
+        ]
+    )
+
+    st.markdown("### Executive Summary for the Owner")
+    st.markdown(
+        f"""
+        <div class="success-box">
+            <b>Overall performance:</b> The selected data generated <b>{money(owner['total_revenue'])}</b> from <b>{owner['total_transactions']:,}</b> transactions and <b>{owner['total_customers']:,}</b> unique customers.
+        </div>
+        <div class="insight-box">
+            <b>Best category:</b> <b>{owner['top_category']}</b> is the strongest revenue category, contributing around <b>{owner['top_category_share']:.1f}%</b> of total sales in the selected view.
+        </div>
+        <div class="insight-box">
+            <b>Customer behavior:</b> <b>{owner['top_gender_revenue']}</b> customers generated the highest total revenue, while <b>{owner['top_gender_avg']}</b> customers have the highest average spending per transaction.
+        </div>
+        <div class="warning-box">
+            <b>Top customer:</b> Customer ID <b>{owner['top_customer']}</b> is the highest-value customer in this view with total spending of <b>{money(owner['top_customer_value'])}</b> across <b>{owner['top_customer_orders']}</b> transaction(s).
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+    st.markdown("### Category Performance")
+    category_summary = (
+        filtered.groupby("Product Category")
+        .agg(
+            Revenue=("Total Amount", "sum"),
+            Transactions=("Transaction ID", "nunique"),
+            Customers=("Customer ID", "nunique"),
+            Quantity_Sold=("Quantity", "sum"),
+            Avg_Order_Value=("Total Amount", "mean"),
+            Avg_Quantity=("Quantity", "mean"),
+        )
+        .reset_index()
+        .sort_values("Revenue", ascending=False)
+    )
+    category_summary["Revenue Share %"] = category_summary["Revenue"] / category_summary["Revenue"].sum() * 100
+
+    category_display = category_summary.copy()
+    category_display["Revenue"] = category_display["Revenue"].map(lambda x: f"${x:,.0f}")
+    category_display["Avg_Order_Value"] = category_display["Avg_Order_Value"].map(lambda x: f"${x:,.2f}")
+    category_display["Avg_Quantity"] = category_display["Avg_Quantity"].round(2)
+    category_display["Revenue Share %"] = category_display["Revenue Share %"].map(lambda x: f"{x:.1f}%")
+    st.dataframe(category_display, use_container_width=True, hide_index=True)
+
+    col1, col2 = st.columns(2)
+    with col1:
+        fig = px.pie(
+            category_summary,
+            names="Product Category",
+            values="Revenue",
+            title="Revenue Share by Product Category",
+            hole=0.45,
+        )
+        st.plotly_chart(fig, use_container_width=True)
+
+    with col2:
+        fig = px.bar(
+            category_summary,
+            x="Product Category",
+            y="Quantity_Sold",
+            title="Quantity Sold by Category",
+            text_auto=True,
+        )
+        st.plotly_chart(fig, use_container_width=True)
+
+    st.markdown("### Gender Analysis by Category")
+    gender_category = (
+        filtered.groupby(["Product Category", "Gender"], as_index=False)
+        .agg(
+            Revenue=("Total Amount", "sum"),
+            Transactions=("Transaction ID", "nunique"),
+            Quantity_Sold=("Quantity", "sum"),
+            Avg_Order_Value=("Total Amount", "mean"),
+        )
+    )
+    category_totals = gender_category.groupby("Product Category")["Revenue"].transform("sum")
+    gender_category["Category Revenue Share %"] = np.where(category_totals > 0, gender_category["Revenue"] / category_totals * 100, 0)
+
+    gender_display = gender_category.copy().sort_values(["Product Category", "Revenue"], ascending=[True, False])
+    gender_display["Revenue"] = gender_display["Revenue"].map(lambda x: f"${x:,.0f}")
+    gender_display["Avg_Order_Value"] = gender_display["Avg_Order_Value"].map(lambda x: f"${x:,.2f}")
+    gender_display["Category Revenue Share %"] = gender_display["Category Revenue Share %"].map(lambda x: f"{x:.1f}%")
+    st.dataframe(gender_display, use_container_width=True, hide_index=True)
+
+    col3, col4 = st.columns(2)
+    with col3:
+        fig = px.bar(
+            gender_category,
+            x="Product Category",
+            y="Revenue",
+            color="Gender",
+            barmode="group",
+            title="Male vs Female Revenue per Category",
+            text_auto=".2s",
+        )
+        st.plotly_chart(fig, use_container_width=True)
+
+    with col4:
+        fig = px.sunburst(
+            gender_category,
+            path=["Product Category", "Gender"],
+            values="Revenue",
+            title="Category → Gender Revenue Breakdown",
+        )
+        st.plotly_chart(fig, use_container_width=True)
+
+    st.markdown("### Top Customers")
+    top_customers = (
+        filtered.groupby("Customer ID")
+        .agg(
+            Total_Spending=("Total Amount", "sum"),
+            Transactions=("Transaction ID", "nunique"),
+            Quantity_Sold=("Quantity", "sum"),
+            Avg_Order_Value=("Total Amount", "mean"),
+            Age_Min=("Age", "min"),
+            Age_Max=("Age", "max"),
+            Most_Common_Gender=("Gender", safe_mode),
+            Most_Common_Category=("Product Category", safe_mode),
+        )
+        .reset_index()
+        .sort_values("Total_Spending", ascending=False)
+        .head(10)
+    )
+    top_customers["Age Range"] = top_customers["Age_Min"].astype(int).astype(str) + " - " + top_customers["Age_Max"].astype(int).astype(str)
+    top_customers_display = top_customers.drop(columns=["Age_Min", "Age_Max"]).copy()
+    top_customers_display["Total_Spending"] = top_customers_display["Total_Spending"].map(lambda x: f"${x:,.0f}")
+    top_customers_display["Avg_Order_Value"] = top_customers_display["Avg_Order_Value"].map(lambda x: f"${x:,.2f}")
+    st.dataframe(top_customers_display, use_container_width=True, hide_index=True)
+
+    st.markdown("### Owner Text Analysis")
+    best_category_row = category_summary.iloc[0]
+    lowest_category_row = category_summary.iloc[-1]
+    highest_quantity_category = category_summary.sort_values("Quantity_Sold", ascending=False).iloc[0]
+
+    st.markdown(
+        f"""
+        <div class="section-card">
+            <b>1. Sales focus:</b> The owner should focus first on <b>{best_category_row['Product Category']}</b> because it generated the highest revenue: <b>${best_category_row['Revenue']:,.0f}</b>.<br><br>
+            <b>2. Quantity movement:</b> The category with the highest sold quantity is <b>{highest_quantity_category['Product Category']}</b>, with <b>{int(highest_quantity_category['Quantity_Sold'])}</b> units sold. This category is important for stock planning.<br><br>
+            <b>3. Weak category:</b> <b>{lowest_category_row['Product Category']}</b> currently has the lowest revenue at <b>${lowest_category_row['Revenue']:,.0f}</b>. The owner can review its pricing, promotion, or product availability.<br><br>
+            <b>4. Gender targeting:</b> The dashboard compares male and female performance inside each category. This helps the owner decide whether a category should be promoted more to male customers, female customers, or both.<br><br>
+            <b>5. Customer targeting:</b> The top customer table helps identify valuable customers who can receive loyalty offers, premium bundles, or personalized recommendations.
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+    st.markdown("### Recommended Owner Actions")
+    st.write(
+        """
+- Increase stock and marketing attention for the strongest revenue category.
+- Use gender/category analysis to create more focused campaigns.
+- Give loyalty offers to top customers with the highest spending.
+- Watch the lowest-performing category and test discounts, bundles, or better product placement.
+- Use quantity sold to support inventory planning, not only revenue.
+        """
+    )
 
 
 # =============================
