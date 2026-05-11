@@ -248,9 +248,9 @@ with rf_tab:
     with col2:
         st.dataframe(rf_high["classification_report"].round(3), use_container_width=True)
 
-    st.markdown("### Product Category Classification Metrics")
-    show_metrics_dict(rf_cat["metrics"])
-    st.dataframe(rf_cat["classification_report"].round(3), use_container_width=True)
+    # st.markdown("### Product Category Classification Metrics")
+    # show_metrics_dict(rf_cat["metrics"])
+    # st.dataframe(rf_cat["classification_report"].round(3), use_container_width=True)
 
     st.markdown("### Live Random Forest Prediction")
     col_a, col_b, col_c = st.columns(3)
