@@ -225,12 +225,16 @@ with kmeans_tab:
     live_cluster = predict_customer_cluster(model, scaler, live_values)
     st.success(f"Predicted Cluster: {live_cluster}")
 
+
 with rf_tab:
     st.subheader("Random Forest Models")
-    rf_high = get_rf_high_model(filtered)
-    rf_cat = get_rf_category_model(filtered)
+
+    # Train models on the full cleaned dataset, not the filtered dashboard view.
+    rf_high = get_rf_high_model(df)
+    rf_cat = get_rf_category_model(df)
 
     st.markdown("### High-Spender Classification Metrics")
+
     metric_cards([
         ("Accuracy", f"{rf_high['metrics']['Accuracy']:.3f}"),
         ("Balanced Accuracy", f"{rf_high['metrics']['Balanced Accuracy']:.3f}"),
@@ -238,48 +242,140 @@ with rf_tab:
         ("Recall", f"{rf_high['metrics']['Recall']:.3f}"),
         ("F1", f"{rf_high['metrics']['F1 Score']:.3f}"),
     ])
+
     show_metrics_dict(rf_high["metrics"])
 
     col1, col2 = st.columns(2)
+
     with col1:
-        fig = ff.create_annotated_heatmap(z=rf_high["confusion_matrix"], x=["Pred Normal/Low", "Pred High"], y=["Actual Normal/Low", "Actual High"], colorscale="Blues", showscale=True)
+        fig = ff.create_annotated_heatmap(
+            z=rf_high["confusion_matrix"],
+            x=["Pred Normal/Low", "Pred High"],
+            y=["Actual Normal/Low", "Actual High"],
+            colorscale="Blues",
+            showscale=True,
+        )
         fig.update_layout(title="High-Spender Confusion Matrix")
         st.plotly_chart(fig, use_container_width=True)
-    with col2:
-        st.dataframe(rf_high["classification_report"].round(3), use_container_width=True)
 
-    # st.markdown("### Product Category Classification Metrics")
-    # show_metrics_dict(rf_cat["metrics"])
-    # st.dataframe(rf_cat["classification_report"].round(3), use_container_width=True)
+    with col2:
+        st.dataframe(
+            rf_high["classification_report"].round(3),
+            use_container_width=True,
+        )
+
+    st.markdown("### Cutoff Comparison")
+    st.dataframe(
+        rf_high["threshold_table"].round(3),
+        use_container_width=True,
+        hide_index=True,
+    )
+
+    st.line_chart(
+        rf_high["threshold_table"].set_index("Cutoff")[
+            ["Precision", "Recall", "F1 Score"]
+        ]
+    )
+
+    st.markdown("### Feature Importance")
+    st.dataframe(
+        rf_high["feature_importance"].head(10).round(4),
+        use_container_width=True,
+        hide_index=True,
+    )
 
     st.markdown("### Live Random Forest Prediction")
-    col_a, col_b, col_c = st.columns(3)
-    with col_a:
-        rf_gender = st.selectbox("Gender", sorted(filtered["Gender"].dropna().unique()), key="rf_gender")
-        rf_age = st.number_input("Age", 18, 90, 30, key="rf_age")
-    with col_b:
-        rf_quantity = st.number_input("Quantity", 1, 20, 2, key="rf_quantity")
-        rf_price = st.number_input("Price per Unit", 1.0, 5000.0, 100.0, step=10.0, key="rf_price")
-    with col_c:
-        rf_category = st.selectbox("Product Category", sorted(filtered["Product Category"].dropna().unique()), key="rf_category")
 
-    category_input = pd.DataFrame([[rf_gender, rf_age, rf_quantity, rf_price]], columns=["Gender", "Age", "Quantity", "Price per Unit"])
+    col_a, col_b, col_c = st.columns(3)
+
+    with col_a:
+        rf_gender = st.selectbox(
+            "Gender",
+            sorted(df["Gender"].dropna().unique()),
+            key="rf_gender",
+        )
+        rf_age = st.number_input(
+            "Age",
+            18,
+            90,
+            30,
+            key="rf_age",
+        )
+
+    with col_b:
+        rf_category = st.selectbox(
+            "Product Category",
+            sorted(df["Product Category"].dropna().unique()),
+            key="rf_category",
+        )
+        rf_quantity = st.number_input(
+            "Quantity",
+            1,
+            20,
+            2,
+            key="rf_quantity",
+        )
+
+    with col_c:
+        rf_price = st.number_input(
+            "Price per Unit",
+            1.0,
+            5000.0,
+            100.0,
+            step=10.0,
+            key="rf_price",
+        )
+
+    # Category prediction uses Price per Unit.
+    category_input = pd.DataFrame(
+        [[rf_gender, rf_age, rf_quantity, rf_price]],
+        columns=["Gender", "Age", "Quantity", "Price per Unit"],
+    )
+
     predicted_category = rf_cat["model"].predict(category_input)[0]
 
-    spend_input = pd.DataFrame([[rf_gender, rf_age, rf_category, rf_quantity, rf_price]], columns=["Gender", "Age", "Product Category", "Quantity", "Price per Unit"])
-    spend_probability = rf_high["model"].predict_proba(spend_input)[0][1]
-    spend_label = "High Spender" if spend_probability >= rf_high["metrics"]["Best Probability Cutoff"] else "Normal/Low Spender"
+    # High-Spender prediction does not use Price per Unit.
+    spend_input = pd.DataFrame(
+        [[rf_gender, rf_age, rf_category, rf_quantity]],
+        columns=["Gender", "Age", "Product Category", "Quantity"],
+    )
 
-    result_col1, result_col2 = st.columns(2)
+    spend_probability = rf_high["model"].predict_proba(spend_input)[0][1]
+
+    cutoff = rf_high["metrics"]["Best Probability Cutoff"]
+
+    spend_label = (
+        "High Spender"
+        if spend_probability >= cutoff
+        else "Normal/Low Spender"
+    )
+
+    result_col1, result_col2, result_col3 = st.columns(3)
+
     result_col1.metric("Predicted Product Category", predicted_category)
     result_col2.metric("High-Spending Probability", f"{spend_probability:.1%}")
-    st.success(f"Spending Class: {spend_label}")
+    result_col3.metric("Spending Class", spend_label)
 
     with st.expander("Show High-Spender Test Rows"):
-        st.dataframe(rf_high["result_df"].round(3), use_container_width=True, hide_index=True)
-    with st.expander("Show Category Test Rows"):
-        st.dataframe(rf_cat["result_df"], use_container_width=True, hide_index=True)
+        st.dataframe(
+            rf_high["result_df"].round(3),
+            use_container_width=True,
+            hide_index=True,
+        )
 
+    with st.expander("Show Category Model Metrics"):
+        show_metrics_dict(rf_cat["metrics"])
+
+        st.dataframe(
+            rf_cat["classification_report"].round(3),
+            use_container_width=True,
+        )
+
+        st.dataframe(
+            rf_cat["result_df"],
+            use_container_width=True,
+            hide_index=True,
+        )
 with lr_tab:
     st.subheader("Linear Regression Model")
     lr = get_lr_model(filtered)
